@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/tls"
 	"encoding/json"
+	"encoding/base64"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -222,15 +223,27 @@ func getNsxClusterStatus() {
 	go func() {
 		for {
 			t1 := time.Now()
+			var client http.Client
 
 			http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 
-			response, err := http.Get("https://" + nsxthost + "/api/v1/cluster/status")
+			req, err := http.NewRequest("GET","https://" + nsxthost + "/api/v1/cluster/status",nil)
+			req.Header.Add("Authorization","Basic " + basicAuth(apiuser,apipass))
+
 			if err != nil {
 				fmt.Print(err.Error())
 				os.Exit(1)
 			}
 
+			response, err := client.Do(req)
+
+			if err != nil {
+				fmt.Print(err.Error())
+				os.Exit(1)
+			}
+
+			defer response.Body.Close()
+		
 			responseData, err := ioutil.ReadAll(response.Body)
 			if err != nil {
 				log.Fatal(err)
@@ -265,14 +278,22 @@ func getNsxClusterStatus() {
 func getNsxClusterNodeMetrics(id string) {
 
 	t1 := time.Now()
+	var client http.Client 
 
 	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 
-	response, err := http.Get("https://" + nsxthost + "/api/v1/cluster/nodes/" + id + "/status")
+	req, err := http.NewRequest("GET","https://" + nsxthost + "/api/v1/cluster/nodes/" + id + "/status",nil)
+	req.Header.Add("Authorization","Basic "+basicAuth(apiuser,apipass))
+
+	if err != nil {}
+	response, err := client.Do(req)
+
 	if err != nil {
 		fmt.Print(err.Error())
 		os.Exit(1)
 	}
+
+	defer response.Body.Close()
 
 	responseData, err := ioutil.ReadAll(response.Body)
 	if err != nil {
@@ -290,8 +311,15 @@ func getNsxClusterNodeMetrics(id string) {
 
 }
 
+func basicAuth(username, password string) string {
+	auth := username + ":" + password
+	return base64.StdEncoding.EncodeToString([]byte(auth))
+	}
+
 // NSXHOST must be exported to an environment variable
 var nsxthost string
+var apiuser string
+var apipass string
 
 func main() {
 
@@ -301,6 +329,22 @@ func main() {
 		os.Exit(1)
 	} else {
 		fmt.Println("NSXTHOST: " + nsxthost)
+	}
+
+	apiuser = os.Getenv("NSXTUSER")
+	if len(apiuser) == 0 {
+		fmt.Println("Empty environment variable NSXTUSER. Exit..")
+		os.Exit(1)
+	} else {
+		fmt.Println("NSXTUSER: " + apiuser)
+	}
+
+	apipass = os.Getenv("NSXTPASS")
+	if len(apipass) == 0 {
+		fmt.Println("Empty environment variable NSXTPASS. Exit..")
+		os.Exit(1)
+	} else {
+		fmt.Println("NSXTPASS: ****")
 	}
 
 	//Create metric registrations and handler for Prometheus
