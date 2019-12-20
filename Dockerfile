@@ -11,5 +11,5 @@ COPY --from=builder /app/main .
 EXPOSE 8080
 ENV NSXTHOST="10.175.72.111"
 ENV NSXTUSER="user"
-ENV NSXTPASS="pass"
+ENV DEBUG="true"
 CMD ["/main"]

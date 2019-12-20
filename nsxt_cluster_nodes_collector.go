@@ -19,9 +19,11 @@ import (
 
 // ClusterStatusResponse definitions
 type ClusterStatusResponse struct {
-	controlClusterStatus ControlClusterStatus `json:"control_cluster_status"`
+	clusterID			string				`json:"cluster_id"`
 	mgmtClusterStatus    MgmtClusterStatus    `json:"mgmt_cluster_status"`
+	controlClusterStatus ControlClusterStatus `json:"control_cluster_status"`
 }
+
 
 type ControlClusterStatus struct {
 	status string `json:"status"`
@@ -165,7 +167,7 @@ var controllerClusterStatusMetric = prometheus.NewGaugeVec(
 		Help: "Shows the status for the controller cluster",
 	},
 	[]string{
-		"nsx_manager",
+		"cluster_id",
 		"controller_cluster_status",
 	},
 )
@@ -176,7 +178,7 @@ var mgmtClusterStatusMetric = prometheus.NewGaugeVec(
 		Help: "Shows the status for the management cluster",
 	},
 	[]string{
-		"nsxt_host",
+		"cluster_id",
 		"mgmt_cluster_status",
 	},
 )
@@ -187,7 +189,7 @@ var mgmtClusterNodeStatusMetric = prometheus.NewGaugeVec(
 		Help: "Shows the status for the management cluster node",
 	},
 	[]string{
-		"nsxt_host",
+		"cluster_id",
 		"node_id",
 		"mgmt_closter_node_status",
 	},
@@ -236,11 +238,16 @@ func getNsxClusterStatus() {
 			}
 		
 			// Adding Request Dump
-			dump, err := httputil.DumpRequest(req, true)
-			if err != nil {
-				log.Fatal(err)
-			}
-			fmt.Printf("%q", dump)
+			if (debug) {
+				dump, err := httputil.DumpRequest(req, true)
+				if err != nil {
+					log.Fatal(err)
+				}
+
+				log.Printf("%q", dump)
+			} 
+
+			//fmt.Printf("%q", dump)
 
 			response, err := client.Do(req)
 
@@ -252,11 +259,13 @@ func getNsxClusterStatus() {
 			defer response.Body.Close()
 		
 			// Adding Response dump
-			respDump, err2 := httputil.DumpResponse(response, true)
-			if err != nil {
-				log.Fatal(err2)
+			if (debug) {
+				respDump, err2 := httputil.DumpResponse(response, true)
+				if err != nil {
+					log.Fatal(err2)
+				}
+				log.Printf("%q", respDump)
 			}
-			fmt.Printf("%q", respDump)
 
 			responseData, err := ioutil.ReadAll(response.Body)
 			if err != nil {
@@ -264,22 +273,26 @@ func getNsxClusterStatus() {
 			}
 
 			var responseObject ClusterStatusResponse
+			var clusterID string
+	
 			json.Unmarshal(responseData, &responseObject)
 
-			fmt.Println("Mgmt Cluster Status: " + responseObject.mgmtClusterStatus.status)
-			mgmtClusterStatusMetric.WithLabelValues(nsxthost, responseObject.mgmtClusterStatus.status).Set(1.0)
+			clusterID=responseObject.clusterID
+			log.Println("Mgmt Cluster Status: " + responseObject.mgmtClusterStatus.status)
+			log.Println("Mgmt Cluster ID: " + clusterID)
+			mgmtClusterStatusMetric.WithLabelValues(clusterID, responseObject.mgmtClusterStatus.status).Set(1.0)
 
-			fmt.Println("Controller Cluster Status" + responseObject.controlClusterStatus.status)
-			controllerClusterStatusMetric.WithLabelValues(nsxthost, responseObject.controlClusterStatus.status).Set(1.0)
+			log.Println("Controller Cluster Status" + responseObject.controlClusterStatus.status)
+			controllerClusterStatusMetric.WithLabelValues(clusterID, responseObject.controlClusterStatus.status).Set(1.0)
 			for i := 0; i < len(responseObject.mgmtClusterStatus.onlineNodes); i++ {
-				fmt.Println("Cluster Node ID: " + responseObject.mgmtClusterStatus.onlineNodes[i].UUID)
-				fmt.Println("Cluster Node IP: " + responseObject.mgmtClusterStatus.onlineNodes[i].IP)
-				getNsxClusterNodeMetrics(responseObject.mgmtClusterStatus.onlineNodes[i].UUID)
+				log.Println("Cluster Node ID: " + responseObject.mgmtClusterStatus.onlineNodes[i].UUID)
+				log.Println("Cluster Node IP: " + responseObject.mgmtClusterStatus.onlineNodes[i].IP)
+				getNsxClusterNodeMetrics(responseObject.mgmtClusterStatus.onlineNodes[i].UUID, clusterID)
 			}
 			for i := 0; i < len(responseObject.mgmtClusterStatus.offlineNodes); i++ {
-				fmt.Println("Cluster Node ID: " + responseObject.mgmtClusterStatus.offlineNodes[i].UUID)
-				fmt.Println("Cluster Node IP: " + responseObject.mgmtClusterStatus.offlineNodes[i].IP)
-				getNsxClusterNodeMetrics(responseObject.mgmtClusterStatus.offlineNodes[i].UUID)
+				log.Println("Cluster Node ID: " + responseObject.mgmtClusterStatus.offlineNodes[i].UUID)
+				log.Println("Cluster Node IP: " + responseObject.mgmtClusterStatus.offlineNodes[i].IP)
+				getNsxClusterNodeMetrics(responseObject.mgmtClusterStatus.offlineNodes[i].UUID, clusterID)
 			}
 			diff := time.Now().Sub(t1)
 			fmt.Println(diff)
@@ -289,7 +302,7 @@ func getNsxClusterStatus() {
 
 }
 
-func getNsxClusterNodeMetrics(id string) {
+func getNsxClusterNodeMetrics(id string, clusterid string) {
 
 	t1 := time.Now()
 	var client http.Client 
@@ -304,12 +317,13 @@ func getNsxClusterNodeMetrics(id string) {
 	}
 
 	// Adding Request Dump
-	dump, err := httputil.DumpRequest(req, true)
-	if err != nil {
-		log.Fatal(err)
+	if (debug) {
+		dump, err := httputil.DumpRequest(req, true)
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Printf("%q", dump)
 	}
-	fmt.Printf("%q", dump)
-
 	response, err := client.Do(req)
 
 	if err != nil {
@@ -320,11 +334,13 @@ func getNsxClusterNodeMetrics(id string) {
 	defer response.Body.Close()
 
 	// Adding Response dump
-	respDump, err2 := httputil.DumpResponse(response, true)
-	if err != nil {
-		log.Fatal(err2)
-	}
-	fmt.Printf("%q", respDump)
+	if (debug) {
+		respDump, err2 := httputil.DumpResponse(response, true)
+		if err != nil {
+			log.Fatal(err2)
+		}
+		log.Printf("%q", respDump)
+		}
 
 	responseData, err := ioutil.ReadAll(response.Body)
 	if err != nil {
@@ -335,7 +351,7 @@ func getNsxClusterNodeMetrics(id string) {
 	json.Unmarshal(responseData, &responseObject)
 
 	fmt.Println("Controller cluster node status:" + responseObject.nodeMgmtClusterStatus.nodeMgmtClusterStatus)
-	mgmtClusterNodeStatusMetric.WithLabelValues(nsxthost, id, responseObject.nodeMgmtClusterStatus.nodeMgmtClusterStatus).Set(1.0)
+	mgmtClusterNodeStatusMetric.WithLabelValues(clusterid, id, responseObject.nodeMgmtClusterStatus.nodeMgmtClusterStatus).Set(1.0)
 
 	diff := time.Now().Sub(t1)
 	fmt.Println(diff)
@@ -352,6 +368,8 @@ func basicAuth(username, password string) string {
 var nsxthost string
 var apiuser string
 var apipass string
+var envdebug string
+var debug bool
 
 func main() {
 
@@ -377,6 +395,15 @@ func main() {
 		os.Exit(1)
 	} else {
 		fmt.Println("NSXTPASS: ****")
+	}
+
+	envdebug = os.Getenv("DEBUG")
+	if len(envdebug) == 0 {
+		debug = false
+		fmt.Println("DEBUG turned off.")
+	} else {
+		debug = true
+		fmt.Println("DEBUG turned on. Will logg requests and responses")
 	}
 
 	//Create metric registrations and handler for Prometheus
