@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"net/http/httputil"
 	"os"
 	"time"
 
@@ -231,19 +232,32 @@ func getNsxClusterStatus() {
 			req.Header.Add("Authorization","Basic " + basicAuth(apiuser,apipass))
 
 			if err != nil {
-				fmt.Print(err.Error())
-				os.Exit(1)
+				log.Fatal(err)
 			}
+		
+			// Adding Request Dump
+			dump, err := httputil.DumpRequest(req, true)
+			if err != nil {
+				log.Fatal(err)
+			}
+			fmt.Printf("%q", dump)
 
 			response, err := client.Do(req)
 
 			if err != nil {
-				fmt.Print(err.Error())
+				log.Fatal(err)
 				os.Exit(1)
 			}
 
 			defer response.Body.Close()
 		
+			// Adding Response dump
+			respDump, err2 := httputil.DumpResponse(response, true)
+			if err != nil {
+				log.Fatal(err2)
+			}
+			fmt.Printf("%q", respDump)
+
 			responseData, err := ioutil.ReadAll(response.Body)
 			if err != nil {
 				log.Fatal(err)
@@ -283,17 +297,34 @@ func getNsxClusterNodeMetrics(id string) {
 	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 
 	req, err := http.NewRequest("GET","https://" + nsxthost + "/api/v1/cluster/nodes/" + id + "/status",nil)
-	req.Header.Add("Authorization","Basic "+basicAuth(apiuser,apipass))
+	req.Header.Add("Authorization","Basic " + basicAuth(apiuser,apipass))
 
-	if err != nil {}
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Adding Request Dump
+	dump, err := httputil.DumpRequest(req, true)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("%q", dump)
+
 	response, err := client.Do(req)
 
 	if err != nil {
-		fmt.Print(err.Error())
+		log.Fatal(err)
 		os.Exit(1)
 	}
 
 	defer response.Body.Close()
+
+	// Adding Response dump
+	respDump, err2 := httputil.DumpResponse(response, true)
+	if err != nil {
+		log.Fatal(err2)
+	}
+	fmt.Printf("%q", respDump)
 
 	responseData, err := ioutil.ReadAll(response.Body)
 	if err != nil {
@@ -314,7 +345,8 @@ func getNsxClusterNodeMetrics(id string) {
 func basicAuth(username, password string) string {
 	auth := username + ":" + password
 	return base64.StdEncoding.EncodeToString([]byte(auth))
-	}
+}
+
 
 // NSXHOST must be exported to an environment variable
 var nsxthost string
