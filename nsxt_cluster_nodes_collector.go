@@ -19,31 +19,31 @@ import (
 
 // ClusterStatusResponse definitions
 type ClusterStatusResponse struct {
-	clusterID			string				`json:"cluster_id"`
-	mgmtClusterStatus    MgmtClusterStatus    `json:"mgmt_cluster_status"`
-	controlClusterStatus ControlClusterStatus `json:"control_cluster_status"`
+	ClusterID	string	`json:"cluster_id,omitempty"`
+	MgmtClusterStatus    MgmtClusterStatus    `json:"mgmt_cluster_status,omitempty"`
+	ControlClusterStatus ControlClusterStatus `json:"control_cluster_status,omitempty"`
 }
 
 
 type ControlClusterStatus struct {
-	status string `json:"status"`
+	Status string `json:"status,omitempty"`
 }
 
 type MgmtClusterStatus struct {
-	offlineNodes        []MgmtNodes           `json:"offline_nodes,omitempty"`
-	onlineNodes         []MgmtNodes           `json:"online_nodes,omitempty"`
-	clusterInitNodeInfo []ClusterInitNodeInfo `json:"required_members_for_initialization,omitempty"`
-	status              string                `json:"status"`
+	Status              string                `json:"status,omitempty"`
+	OfflineNodes        []MgmtNodes           `json:"offline_nodes,omitempty"`
+	OnlineNodes         []MgmtNodes           `json:"online_nodes,omitempty"`
+	OlusterInitNodeInfo []ClusterInitNodeInfo `json:"required_members_for_initialization,omitempty"`
 }
 
 type MgmtNodes struct {
-	IP   string `json:"mgmt_cluster_listen_ip_address"`
-	UUID string `json:"uuid"`
+	UUID string `json:"uuid,omitempty"`
+	IP   string `json:"mgmt_cluster_listen_ip_address,omitempty"`
 }
 
 type ClusterInitNodeInfo struct {
-	diskStoreID string `json:"disk_store_id"`
-	hostAddress string `json:"host_address"`
+	DiskStoreID string `json:"disk_store_id,omitempty"`
+	HostAddress string `json:"host_address,omitempty"`
 }
 
 //ClusterNodeStatus Definitions
@@ -209,7 +209,7 @@ var edgeClusterStatusMetric = prometheus.NewGaugeVec(
 
 var edgeClusterNodeStatusMetric = prometheus.NewGaugeVec(
 	prometheus.GaugeOpts{
-		Name: "edge_cluster__node_status",
+		Name: "edge_cluster_node_status",
 		Help: "Shows the status for the edge cluster node",
 	},
 	[]string{
@@ -231,6 +231,7 @@ func getNsxClusterStatus() {
 			http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 
 			req, err := http.NewRequest("GET","https://" + nsxthost + "/api/v1/cluster/status",nil)
+			//req, err := http.NewRequest("GET","http://" + nsxthost + "/api/v1/cluster/status",nil)
 			req.Header.Add("Authorization","Basic " + basicAuth(apiuser,apipass))
 
 			if err != nil {
@@ -275,24 +276,34 @@ func getNsxClusterStatus() {
 			var responseObject ClusterStatusResponse
 			var clusterID string
 	
-			json.Unmarshal(responseData, &responseObject)
 
-			clusterID=responseObject.clusterID
-			log.Println("Mgmt Cluster Status: " + responseObject.mgmtClusterStatus.status)
-			log.Println("Mgmt Cluster ID: " + clusterID)
-			mgmtClusterStatusMetric.WithLabelValues(clusterID, responseObject.mgmtClusterStatus.status).Set(1.0)
-
-			log.Println("Controller Cluster Status" + responseObject.controlClusterStatus.status)
-			controllerClusterStatusMetric.WithLabelValues(clusterID, responseObject.controlClusterStatus.status).Set(1.0)
-			for i := 0; i < len(responseObject.mgmtClusterStatus.onlineNodes); i++ {
-				log.Println("Cluster Node ID: " + responseObject.mgmtClusterStatus.onlineNodes[i].UUID)
-				log.Println("Cluster Node IP: " + responseObject.mgmtClusterStatus.onlineNodes[i].IP)
-				getNsxClusterNodeMetrics(responseObject.mgmtClusterStatus.onlineNodes[i].UUID, clusterID)
+			marsherr := json.Unmarshal(responseData, &responseObject)
+			if  err != nil { 
+				log.Fatal(marsherr)
 			}
-			for i := 0; i < len(responseObject.mgmtClusterStatus.offlineNodes); i++ {
-				log.Println("Cluster Node ID: " + responseObject.mgmtClusterStatus.offlineNodes[i].UUID)
-				log.Println("Cluster Node IP: " + responseObject.mgmtClusterStatus.offlineNodes[i].IP)
-				getNsxClusterNodeMetrics(responseObject.mgmtClusterStatus.offlineNodes[i].UUID, clusterID)
+
+			clusterID=responseObject.ClusterID
+			if (debug) {
+				log.Println("Mgmt Cluster Status: " + responseObject.MgmtClusterStatus.Status)
+				log.Println("Mgmt Cluster ID: " + clusterID)
+			}
+			mgmtClusterStatusMetric.WithLabelValues(clusterID, responseObject.MgmtClusterStatus.Status).Set(1.0)
+
+			if (debug) {
+				log.Println("Controller Cluster Status" + responseObject.ControlClusterStatus.Status)
+			}
+			controllerClusterStatusMetric.WithLabelValues(clusterID, responseObject.ControlClusterStatus.Status).Set(1.0)
+			for i := 0; i < len(responseObject.MgmtClusterStatus.OnlineNodes); i++ {
+				if (debug) {
+					log.Println("Cluster Node ID: " + responseObject.MgmtClusterStatus.OnlineNodes[i].UUID)
+					log.Println("Cluster Node IP: " + responseObject.MgmtClusterStatus.OnlineNodes[i].IP)
+				}
+				getNsxClusterNodeMetrics(responseObject.MgmtClusterStatus.OnlineNodes[i].UUID, clusterID)
+			}
+			for i := 0; i < len(responseObject.MgmtClusterStatus.OfflineNodes); i++ {
+				log.Println("Cluster Node ID: " + responseObject.MgmtClusterStatus.OfflineNodes[i].UUID)
+				log.Println("Cluster Node IP: " + responseObject.MgmtClusterStatus.OfflineNodes[i].IP)
+				getNsxClusterNodeMetrics(responseObject.MgmtClusterStatus.OfflineNodes[i].UUID, clusterID)
 			}
 			diff := time.Now().Sub(t1)
 			fmt.Println(diff)
@@ -310,6 +321,7 @@ func getNsxClusterNodeMetrics(id string, clusterid string) {
 	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 
 	req, err := http.NewRequest("GET","https://" + nsxthost + "/api/v1/cluster/nodes/" + id + "/status",nil)
+	//req, err := http.NewRequest("GET","http://" + nsxthost + "/api/v1/cluster/nodes/" + id + "/status",nil)
 	req.Header.Add("Authorization","Basic " + basicAuth(apiuser,apipass))
 
 	if err != nil {
@@ -350,7 +362,7 @@ func getNsxClusterNodeMetrics(id string, clusterid string) {
 	var responseObject ClusterNodeStatus
 	json.Unmarshal(responseData, &responseObject)
 
-	fmt.Println("Controller cluster node status:" + responseObject.nodeMgmtClusterStatus.nodeMgmtClusterStatus)
+	if (debug) { log.Println("Controller cluster node status:" + responseObject.nodeMgmtClusterStatus.nodeMgmtClusterStatus)}
 	mgmtClusterNodeStatusMetric.WithLabelValues(clusterid, id, responseObject.nodeMgmtClusterStatus.nodeMgmtClusterStatus).Set(1.0)
 
 	diff := time.Now().Sub(t1)
@@ -372,7 +384,6 @@ var envdebug string
 var debug bool
 
 func main() {
-
 	nsxthost = os.Getenv("NSXTHOST")
 	if len(nsxthost) == 0 {
 		fmt.Println("Empty environment variable NSXTHOST. Exit..")
@@ -422,6 +433,6 @@ func main() {
 	//any metrics on the /metrics endpoint.
 	handler := promhttp.HandlerFor(r, promhttp.HandlerOpts{})
 	http.Handle("/metrics", handler)
-	log.Println("Beginning to serve on port :8080")
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	if (debug) { log.Println("Beginning to serve on port :8080")}
+	if (debug) {log.Fatal(http.ListenAndServe(":8080", nil))}
 }
