@@ -2,16 +2,16 @@ package main
 
 import (
 	"crypto/tls"
-	"encoding/json"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"net/http/httputil"
 	"os"
+	"strconv"
 	"time"
-
 	// Prometheus client library
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -19,11 +19,10 @@ import (
 
 // ClusterStatusResponse definitions
 type ClusterStatusResponse struct {
-	ClusterID	string	`json:"cluster_id,omitempty"`
+	ClusterID            string               `json:"cluster_id,omitempty"`
 	MgmtClusterStatus    MgmtClusterStatus    `json:"mgmt_cluster_status,omitempty"`
 	ControlClusterStatus ControlClusterStatus `json:"control_cluster_status,omitempty"`
 }
-
 
 type ControlClusterStatus struct {
 	Status string `json:"status,omitempty"`
@@ -33,7 +32,7 @@ type MgmtClusterStatus struct {
 	Status              string                `json:"status,omitempty"`
 	OfflineNodes        []MgmtNodes           `json:"offline_nodes,omitempty"`
 	OnlineNodes         []MgmtNodes           `json:"online_nodes,omitempty"`
-	OlusterInitNodeInfo []ClusterInitNodeInfo `json:"required_members_for_initialization,omitempty"`
+	ClusterInitNodeInfo []ClusterInitNodeInfo `json:"required_members_for_initialization,omitempty"`
 }
 
 type MgmtNodes struct {
@@ -48,13 +47,13 @@ type ClusterInitNodeInfo struct {
 
 //ClusterNodeStatus Definitions
 type ClusterNodeStatus struct {
-	NodeSystemStatus      NodeStatusProperties  `json:"system_status"`
+	NodeStatusProperties  NodeStatusProperties  `json:"system_status"`
 	NodeMgmtClusterStatus NodeMgmtClusterStatus `json:"mgmt_cluster_status"`
 	NodeVersion           string                `json:"version"`
 }
 
 type NodeStatusProperties struct {
-	MemUsed         int32            `json:"mem_used"`
+	NodeMemUsed     int32            `json:"mem_used"`
 	SysTime         int32            `json:"system_time"`
 	NodeFileStatus  []NodeFileStatus `json:"file_systems"`
 	NodeLoadAverage []float64        `json:"load_averages"`
@@ -194,7 +193,51 @@ var mgmtClusterNodeStatusMetric = prometheus.NewGaugeVec(
 		"mgmt_closter_node_status",
 	},
 )
-
+var mgmtClusterNodeCPULoadMetric = prometheus.NewGaugeVec(
+	prometheus.GaugeOpts{
+		Name: "mgmt_cluster_node_cpu",
+		Help: "Shows the cpu % for the mgmt cluster node",
+	},
+	[]string{
+		"nsxt_host",
+		"mgmt_cluster_id",
+		"node_id",
+		"processor_id",
+	},
+)
+var mgmtClusterNodeMemUsedMetric = prometheus.NewGaugeVec(
+	prometheus.GaugeOpts{
+		Name: "mgmt_cluster_node_memory",
+		Help: "Shows the memory usage for the mgmt cluster node",
+	},
+	[]string{
+		"nsxt_host",
+		"mgmt_cluster_id",
+		"node_id",
+	},
+)
+var mgmtClusterNodeMemTotalMetric = prometheus.NewGaugeVec(
+	prometheus.GaugeOpts{
+		Name: "mgmt_cluster_node_memory_total",
+		Help: "Shows the total memory  for the mgmt cluster node",
+	},
+	[]string{
+		"nsxt_host",
+		"mgmt_cluster_id",
+		"node_id",
+	},
+)
+var mgmtClusterNodeMemCacheMetric = prometheus.NewGaugeVec(
+	prometheus.GaugeOpts{
+		Name: "mgmt_cluster_node_memory_cache",
+		Help: "Shows the total memory cache for the mgmt cluster node",
+	},
+	[]string{
+		"nsxt_host",
+		"mgmt_cluster_id",
+		"node_id",
+	},
+)
 var edgeClusterStatusMetric = prometheus.NewGaugeVec(
 	prometheus.GaugeOpts{
 		Name: "edge_cluster_status",
@@ -221,7 +264,7 @@ var edgeClusterNodeStatusMetric = prometheus.NewGaugeVec(
 )
 
 // Process NSX-T API Requests
-func getNsxClusterStatus() {
+func getNsxClusterStatus(interval int) {
 
 	go func() {
 		for {
@@ -230,23 +273,23 @@ func getNsxClusterStatus() {
 
 			http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 
-			req, err := http.NewRequest("GET","https://" + nsxthost + "/api/v1/cluster/status",nil)
+			req, err := http.NewRequest("GET", "https://"+nsxthost+"/api/v1/cluster/status", nil)
 			//req, err := http.NewRequest("GET","http://" + nsxthost + "/api/v1/cluster/status",nil)
-			req.Header.Add("Authorization","Basic " + basicAuth(apiuser,apipass))
+			req.Header.Add("Authorization", "Basic "+basicAuth(apiuser, apipass))
 
 			if err != nil {
 				log.Fatal(err)
 			}
-		
+
 			// Adding Request Dump
-			if (debug) {
+			if debug {
 				dump, err := httputil.DumpRequest(req, true)
 				if err != nil {
 					log.Fatal(err)
 				}
 
 				log.Printf("%q", dump)
-			} 
+			}
 
 			//fmt.Printf("%q", dump)
 
@@ -258,9 +301,9 @@ func getNsxClusterStatus() {
 			}
 
 			defer response.Body.Close()
-		
+
 			// Adding Response dump
-			if (debug) {
+			if debug {
 				respDump, err2 := httputil.DumpResponse(response, true)
 				if err != nil {
 					log.Fatal(err2)
@@ -275,26 +318,25 @@ func getNsxClusterStatus() {
 
 			var responseObject ClusterStatusResponse
 			var clusterID string
-	
 
 			marsherr := json.Unmarshal(responseData, &responseObject)
-			if  err != nil { 
+			if err != nil {
 				log.Fatal(marsherr)
 			}
 
-			clusterID=responseObject.ClusterID
-			if (debug) {
+			clusterID = responseObject.ClusterID
+			if debug {
 				log.Println("Mgmt Cluster Status: " + responseObject.MgmtClusterStatus.Status)
 				log.Println("Mgmt Cluster ID: " + clusterID)
 			}
 			mgmtClusterStatusMetric.WithLabelValues(clusterID, responseObject.MgmtClusterStatus.Status).Set(1.0)
 
-			if (debug) {
+			if debug {
 				log.Println("Controller Cluster Status" + responseObject.ControlClusterStatus.Status)
 			}
 			controllerClusterStatusMetric.WithLabelValues(clusterID, responseObject.ControlClusterStatus.Status).Set(1.0)
 			for i := 0; i < len(responseObject.MgmtClusterStatus.OnlineNodes); i++ {
-				if (debug) {
+				if debug {
 					log.Println("Cluster Node ID: " + responseObject.MgmtClusterStatus.OnlineNodes[i].UUID)
 					log.Println("Cluster Node IP: " + responseObject.MgmtClusterStatus.OnlineNodes[i].IP)
 				}
@@ -307,7 +349,7 @@ func getNsxClusterStatus() {
 			}
 			diff := time.Now().Sub(t1)
 			fmt.Println(diff)
-			time.Sleep(60 * time.Second)
+			time.Sleep(time.Duration(interval) * time.Second)
 		}
 	}()
 
@@ -316,20 +358,20 @@ func getNsxClusterStatus() {
 func getNsxClusterNodeMetrics(id string, clusterid string) {
 
 	t1 := time.Now()
-	var client http.Client 
+	var client http.Client
 
 	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 
-	req, err := http.NewRequest("GET","https://" + nsxthost + "/api/v1/cluster/nodes/" + id + "/status",nil)
+	req, err := http.NewRequest("GET", "https://"+nsxthost+"/api/v1/cluster/nodes/"+id+"/status", nil)
 	//req, err := http.NewRequest("GET","http://" + nsxthost + "/api/v1/cluster/nodes/" + id + "/status",nil)
-	req.Header.Add("Authorization","Basic " + basicAuth(apiuser,apipass))
+	req.Header.Add("Authorization", "Basic "+basicAuth(apiuser, apipass))
 
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	// Adding Request Dump
-	if (debug) {
+	if debug {
 		dump, err := httputil.DumpRequest(req, true)
 		if err != nil {
 			log.Fatal(err)
@@ -346,13 +388,13 @@ func getNsxClusterNodeMetrics(id string, clusterid string) {
 	defer response.Body.Close()
 
 	// Adding Response dump
-	if (debug) {
+	if debug {
 		respDump, err2 := httputil.DumpResponse(response, true)
 		if err != nil {
 			log.Fatal(err2)
 		}
 		log.Printf("%q", respDump)
-		}
+	}
 
 	responseData, err := ioutil.ReadAll(response.Body)
 	if err != nil {
@@ -362,8 +404,39 @@ func getNsxClusterNodeMetrics(id string, clusterid string) {
 	var responseObject ClusterNodeStatus
 	json.Unmarshal(responseData, &responseObject)
 
-	if (debug) { log.Println("Controller cluster node status:" + responseObject.NodeMgmtClusterStatus.MgmtClusterStatus)}
-	mgmtClusterNodeStatusMetric.WithLabelValues(clusterid, id, responseObject.NodeMgmtClusterStatus.MgmtClusterStatus).Set(1.0)
+	/*type NodeStatusProperties struct {
+	  	NodeMemUsed         int32            `json:"mem_used"`
+	  	SysTime         int32            `json:"system_time"`
+	  	NodeFileStatus  []NodeFileStatus `json:"file_systems"`
+	  	NodeLoadAverage []float64        `json:"load_averages"`
+	  	NodeSwapTotal   int32            `json:"swap_total"`
+	  	NodeMemCache    int32            `json:"mem_cache"`
+	  	NodeCPUs        int32            `json:"cpu_cores"`
+	  	NodeSource      string           `json:"source"`
+	  	NodeMemTotal    int32            `json:"mem_total"`
+	  	NodeSwapUsed    int32            `json:"swap_used"`
+	  	NodeUpTime      int32            `json:"uptime"`
+	  }
+	*/
+
+	nodeClusterStatus := responseObject.NodeMgmtClusterStatus.MgmtClusterStatus
+	nodeCPULoad := responseObject.NodeStatusProperties.NodeLoadAverage
+	nodeMemUsed := responseObject.NodeStatusProperties.NodeMemUsed
+	nodeMemTotal := responseObject.NodeStatusProperties.NodeMemTotal
+	nodeMemCache := responseObject.NodeStatusProperties.NodeMemCache
+
+	mgmtClusterNodeMemUsedMetric.WithLabelValues(nsxthost, clusterid, id).Set(float64(nodeMemUsed))
+	mgmtClusterNodeMemTotalMetric.WithLabelValues(nsxthost, clusterid, id).Set(float64(nodeMemTotal))
+	mgmtClusterNodeMemCacheMetric.WithLabelValues(nsxthost, clusterid, id).Set(float64(nodeMemCache))
+	for i := 0; i <= len(nodeCPULoad); i++ {
+		mgmtClusterNodeCPULoadMetric.WithLabelValues(nsxthost, clusterid, id, strconv.Itoa(i)).Set(nodeCPULoad[i])
+	}
+
+	if debug {
+		log.Println("Controller cluster node status:" + nodeClusterStatus)
+		log.Printf("Mgmt cluster node memory used: %d total: %d cached %d\n", nodeMemUsed, nodeMemTotal, nodeMemCache)
+		log.Printf("Mgmt cluster node cpu load: %v\n", nodeCPULoad)
+	}
 
 	diff := time.Now().Sub(t1)
 	fmt.Println(diff)
@@ -375,13 +448,15 @@ func basicAuth(username, password string) string {
 	return base64.StdEncoding.EncodeToString([]byte(auth))
 }
 
-
 // NSXHOST must be exported to an environment variable
 var nsxthost string
 var apiuser string
 var apipass string
 var envdebug string
 var debug bool
+var envinterval string
+var clusterStatusInterval int
+var err error
 
 func main() {
 	nsxthost = os.Getenv("NSXTHOST")
@@ -417,22 +492,40 @@ func main() {
 		fmt.Println("DEBUG turned on. Will logg requests and responses")
 	}
 
+	envinterval = os.Getenv("CLUSTER_STATUS_INTERVAL")
+	clusterStatusInterval, err = strconv.Atoi(envinterval)
+
+	if err == nil && clusterStatusInterval > 0 {
+		fmt.Println("Interval for cluster status set to " + envinterval + " secs")
+	} else {
+		fmt.Println("Using default metric interval of 60 secs")
+		clusterStatusInterval = 60
+	}
+
 	//Create metric registrations and handler for Prometheus
 	r := prometheus.NewRegistry()
 
 	r.MustRegister(controllerClusterStatusMetric)
 	r.MustRegister(mgmtClusterStatusMetric)
 	r.MustRegister(mgmtClusterNodeStatusMetric)
+	r.MustRegister(mgmtClusterNodeCPULoadMetric)
+	r.MustRegister(mgmtClusterNodeMemUsedMetric)
+	r.MustRegister(mgmtClusterNodeMemTotalMetric)
+	r.MustRegister(mgmtClusterNodeMemCacheMetric)
 	r.MustRegister(edgeClusterStatusMetric)
 	r.MustRegister(edgeClusterNodeStatusMetric)
 
 	// Start Controller Cluster Metric Collection
-	getNsxClusterStatus()
+	getNsxClusterStatus(clusterStatusInterval)
 
 	//This section will start the HTTP server and expose
 	//any metrics on the /metrics endpoint.
 	handler := promhttp.HandlerFor(r, promhttp.HandlerOpts{})
 	http.Handle("/metrics", handler)
-	if (debug) { log.Println("Beginning to serve on port :8080")}
-	if (debug) {log.Fatal(http.ListenAndServe(":8080", nil))}
+	if debug {
+		log.Println("Beginning to serve on port :8080")
+	}
+	if debug {
+		log.Fatal(http.ListenAndServe(":8080", nil))
+	}
 }
